@@ -96,8 +96,8 @@ kG = intx*inty/4*GA.T*Nmat*GB
 maux = M([[   1,   0,   0,  -d,  0],
           [   0,   1,   0,   0, -d],
           [   0,   0,   1,   0,  0],
-          [ -d,   0, 0, (h^2/12 + d^2), 0],
-          [    0, -d, 0, 0, (h^2/12 + d^2)]])
+          [ -d,   0, 0, (h**2/12 + d**2), 0],
+          [    0, -d, 0, 0, (h**2/12 + d**2)]])
 
 gA5 = M([suA, svA, swA, -(2/a)*swAxi, -(2/b)*swAeta])
 gB5 = M([suB, svB, swB, -(2/a)*swBxi, -(2/b)*swBeta])

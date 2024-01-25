@@ -27,4 +27,4 @@ kMv[c] += d*fAw*fBv*gAweta*gBv*h*intx*inty*rho/(2*b)
 c += 1
 kMr[c] = row+2
 kMc[c] = col+2
-kMv[c] += fAw*fBw*gAw*gBw*h*intx*inty*rho/4 + fAw*fBw*gAweta*gBweta*h*intx*inty*rho*~(Xor(h, d + 0.166666666666667))/(b*b) + fAwxi*fBwxi*gAw*gBw*h*intx*inty*rho*~(Xor(h, d + 0.166666666666667))/(a*a)
+kMv[c] += fAw*fBw*gAw*gBw*h*intx*inty*rho/4 + fAw*fBw*gAweta*gBweta*h*intx*inty*rho*((d*d) + (h*h)/12)/(b*b) + fAwxi*fBwxi*gAw*gBw*h*intx*inty*rho*((d*d) + (h*h)/12)/(a*a)
