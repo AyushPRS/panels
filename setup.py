@@ -45,7 +45,7 @@ License :: OSI Approved :: BSD License
 MAJOR = 0
 MINOR = 4
 MICRO = 1
-ISRELEASED = False
+ISRELEASED = True
 VERSION = '%d.%d.%d' % (MAJOR, MINOR, MICRO)
 
 
@@ -241,6 +241,7 @@ extensions = [
 # multi-domain connections
     Extension('panels.multidomain.connections.kCpd',
         sources=[
+            './panels/core/src/bardell.cpp',
             './panels/core/src/bardell_functions.cpp',
             './panels/multidomain/connections/kCpd.pyx',
             ],
