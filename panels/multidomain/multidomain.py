@@ -19,6 +19,8 @@ def default_field(panel, gridx, gridy):
     xs = linspace(0, panel.a, gridx)
     ys = linspace(0, panel.b, gridy)
     xs, ys = np.meshgrid(xs, ys, copy=False)
+        # Now xs and ys have the x and y coord of all the grid points i.e. size = no_grid_x * no_grid_y
+    # Scalar inputs are converted to 1D arrays, whilst higher-dimensional inputs are preserved
     xs = np.atleast_1d(np.array(xs, dtype=DOUBLE))
     ys = np.atleast_1d(np.array(ys, dtype=DOUBLE))
     shape = xs.shape
@@ -53,6 +55,10 @@ class MultiDomain(object):
             dict(p1=panel_1, p2=panel_2, func='SSxcte', xcte1=0, xcte2=panel_2.a),
             dict(p1=panel_2, p2=panel_3, func='SSycte', ycte1=0, ycte2=panel_3.b)
             ] # A list of dictionary that indicates two connections: (panel_1-panel_2) and (panel_2-panel_3)
+    
+    xcte1 = location (x const) in panel 1 which connects to panel 2
+    xcte2 = ........................... 2 ....................... 2
+    
     >>> assembly_1 = MultiDomain(panels, conn)
 
     Notes
@@ -62,14 +68,15 @@ class MultiDomain(object):
     builds the compatibility relations between the panels.
 
     The connections functions available are:
-        - 'SSycte' : defines a skin-skin connection and calls the following functions ``fkCSSycte11``, ``fkCSSycte12``, ``fkCSSycte22``
-        - 'SSxcte' : defines a skin-skin connection and calls the following functions ``fkCSSxcte11``, ``fkCSSxcte12``, ``fkCSSxcte22``
+        - 'SSycte' : defines a skin-skin connection for const x and calls the following functions ``fkCSSycte11``, ``fkCSSycte12``, ``fkCSSycte22``
+        - 'SSxcte' : defines a skin-skin connection for const y and calls the following functions ``fkCSSxcte11``, ``fkCSSxcte12``, ``fkCSSxcte22``
         - 'SB' : defines a skin-base connection and calls the following functions ``fkCBFycte11``, ``fkCBFycte12``, ``fkCBFycte22``
         - 'BFycte': defines a base-flange connection and calls the following functions ``fkCBFycte11``, ``fkCBFycte12``, ``fkCBFycte22``
 
     Explanations about the connetion functions are found in ``connections`` module.
     """
     def __init__(self, panels, conn=None):
+        # Initialize the assmbly obj with these values
         self.conn = conn
         self.kC_conn = None
         self.panels = panels
@@ -78,16 +85,20 @@ class MultiDomain(object):
         row0 = 0
         col0 = 0
         for p in panels:
-            assert isinstance(p, Shell)
-            p.row_start = row0
+            assert isinstance(p, Shell) # Check if its Shell obj
+            # This actually modifies the shell obj (i.e. passed panels)
+            p.row_start = row0 # 1st panel starts at 0,0. Rest start at end of last matrix  --- Assembly of Kp_i from the paper
             p.col_start = col0
-            row0 += 3*p.m*p.n
+            row0 += 3*p.m*p.n # 3 bec 3 dof i.e. u,v,w - For FSDT, change to 5
             col0 += 3*p.m*p.n
-            p.row_end = row0
+            p.row_end = row0 # This is now the start for the next panel to be assembled
             p.col_end = col0
 
 
     def get_size(self):
+        '''
+        Size of K of a single panel
+        '''
         self.size = sum([3*p.m*p.n for p in self.panels])
         return self.size
 
@@ -98,7 +109,8 @@ class MultiDomain(object):
             colorbar=False, cbar_nticks=2, cbar_format=None, cbar_title='',
             cbar_fontsize=10, colormap='jet', aspect='equal', clean=True,
             dpi=400, texts=[], xs=None, ys=None, gridx=50, gridy=50,
-            num_levels=400, vecmin=None, vecmax=None, calc_data_only=False):
+            num_levels=400, vecmin=None, vecmax=None, calc_data_only=False, 
+            use_gauss_points = False, x_gauss = None, y_gauss = None):
         r"""Contour plot for a Ritz constants vector.
 
         Parameters
@@ -180,6 +192,12 @@ class MultiDomain(object):
             Maximum value for the contour scale.
         calc_data_only : bool, optional
             If only calculated data should be returned.
+        use_gauss_points : bool, optional 
+            Uses the gauss integration points (x_gauss and y_gauss) to evaluate the fields
+        x_gauss, y_gauss: Array
+                Gauss sampling points along x and y respectively where the displacement field is to be calculated
+            Either one of xg and yg needs to be specified or both
+            When specified, stress_gauss_points and strain_gauss points are called instead
 
         Returns
         -------
@@ -202,15 +220,31 @@ class MultiDomain(object):
         displs = ['u', 'v', 'w', 'phix', 'phiy']
         strains = ['exx', 'eyy', 'gxy', 'kxx', 'kyy', 'kxy', 'gyz', 'gxz']
         stresses = ['Nxx', 'Nyy', 'Nxy', 'Mxx', 'Myy', 'Mxy', 'Qy', 'Qx']
-        if vec in displs:
-            res = self.uvw(c, group, gridx=gridx, gridy=gridy)
-        elif vec in strains:
-            res = self.strain(c, group, gridx=gridx, gridy=gridy)
-        elif vec in stresses:
-            res = self.stress(c, group, gridx=gridx, gridy=gridy)
-        else:
-            raise ValueError(
-                    '{0} is not a valid vec parameter value!'.format(vec))
+        
+        # Using fixed grid to post process the results
+        if use_gauss_points == False:
+            if vec in displs:
+                res = self.uvw(c, group, gridx=gridx, gridy=gridy)
+            elif vec in strains:
+                res = self.strain(c, group, gridx=gridx, gridy=gridy)
+            elif vec in stresses:
+                res = self.stress(c, group, gridx=gridx, gridy=gridy)
+            else:
+                raise ValueError(
+                        '{0} is not a valid vec parameter value!'.format(vec))
+                
+        # Using gauss integration points to post process the resuls
+        if use_gauss_points == True:
+            if vec in displs:
+                res = self.uvw_gauss_points(c, group, x_gauss=x_gauss, y_gauss=y_gauss)
+            elif vec in strains:
+                res = self.strain_gauss_points(c, group, x_gauss=x_gauss, y_gauss=y_gauss)
+            elif vec in stresses:
+                res = self.stress_gauss_points(c, group, x_gauss=x_gauss, y_gauss=y_gauss)
+            else:
+                raise ValueError(
+                        '{0} is not a valid vec parameter value!'.format(vec))
+            
         field = np.array(res[vec])
         msg('Finished!', level=1)
 
@@ -279,7 +313,7 @@ class MultiDomain(object):
             if cbar_title:
                 cax.text(0.5, 1.05, cbar_title, horizontalalignment='center',
                          verticalalignment='bottom', fontsize=fsize)
-            cbar.outline.remove()
+            # cbar.outline.remove()
             cbar.ax.tick_params(labelsize=fsize, pad=0., tick2On=False)
 
         if title != '':
@@ -373,6 +407,7 @@ class MultiDomain(object):
 
     def strain(self, c, group, gridx=50, gridy=50, NLterms=True):
         r"""Calculate the strain field
+        Strains and curvatures at each point ???? all x and y or just diagonal terms ????
 
         Parameters
         ----------
@@ -398,19 +433,28 @@ class MultiDomain(object):
             ``(x, y, exx, eyy, gxy, kxx, kyy, kxy)``.
 
         """
+        
+        # res = results
         res = dict(x=[], y=[], exx=[], eyy=[], gxy=[], kxx=[], kyy=[], kxy=[])
         for panel in self.panels:
+            # If that panel's (in the MD assembly) group is not whose strain u want, skip it
             if panel.group != group:
                 continue
             c_panel = c[panel.col_start: panel.col_end]
             c_panel = np.ascontiguousarray(c_panel, dtype=DOUBLE)
             model = panel.model
+            # In panels\panels\models - for plates, clpt_bardell_field
             fstrain = modelDB.db[model]['field'].fstrain
+            
+            # Here x and y are the complete unravelled grid in the x and y coord resp
+            # So both have the size = gridx*gridy
+            # x and y now have the x and y coord of all the grid points i.e. size = no_grid_x * no_grid_y
             x, y, shape = default_field(panel, gridx, gridy)
             x = np.ascontiguousarray(x)
             y = np.ascontiguousarray(y)
+            
             exx, eyy, gxy, kxx, kyy, kxy = fstrain(c_panel, panel, x, y,
-                    self.out_num_cores, NLterms=int(NLterms))
+                    self.out_num_cores, NLgeom=int(NLterms))
             res['x'].append(reshape(x, shape))
             res['y'].append(reshape(y, shape))
             res['exx'].append(reshape(exx, shape))
@@ -462,7 +506,7 @@ class MultiDomain(object):
             x = np.ascontiguousarray(x)
             y = np.ascontiguousarray(y)
             exx, eyy, gxy, kxx, kyy, kxy = fstrain(c_panel, panel, x, y,
-                    self.out_num_cores, NLterms=int(NLterms))
+                    self.out_num_cores, NLgeom=int(NLterms))
             exx = reshape(exx, shape)
             eyy = reshape(eyy, shape)
             gxy = reshape(gxy, shape)
@@ -470,7 +514,7 @@ class MultiDomain(object):
             kyy = reshape(kyy, shape)
             kxy = reshape(kxy, shape)
             Ns = np.zeros((exx.shape + (6,)))
-            F = panel.F
+            F = panel.ABD
             if F is None:
                 raise ValueError('Laminate ABD matrix not defined for panel')
             for i in range(6):
@@ -487,7 +531,237 @@ class MultiDomain(object):
         return res
 
 
+    def uvw_gauss_points(self, c, group, x_gauss, y_gauss):
+        r"""Calculate the displacement field
+
+        For a given full set of Ritz constants ``c``, the displacement
+        field is calculated and stored in the parameters
+        ``u``, ``v``, ``w``, ``phix``, ``phiy`` of the ``Shell`` object.
+
+        Parameters
+        ----------
+        c : float
+            The full set of Ritz constants
+        group : str
+            A group to plot. Each panel in ``panels`` should contain an
+            attribute ``group``, which is used to identify which entities
+            should be plotted together.
+        x_gauss, y_gauss : Array
+            Gauss sampling points along x and y respectively where the displacement field is to be calculated
+            Either one of xg and yg needs to be specified or both
+
+        Returns
+        -------
+        out : tuple
+            A tuple of ``np.ndarrays`` containing
+            ``(xs, ys, u, v, w, phix, phiy)``.
+
+        Notes
+        -----
+        The returned values ``u```, ``v``, ``w``, ``phix``, ``phiy`` are
+        stored as parameters with the same name in the ``Shell`` object.
+
+        """
+        res = dict(x=[], y=[], u=[], v=[], w=[], phix=[], phiy=[])
+        for panel in self.panels:
+            if panel.group != group:
+                continue
+            c_panel = c[panel.col_start: panel.col_end]
+            c_panel = np.ascontiguousarray(c_panel, dtype=DOUBLE)
+            model = panel.model
+            fuvw = modelDB.db[model]['field'].fuvw
+            
+            if x_gauss is None and y_gauss is None:
+                raise ValueError('Sampling points in atleast x or y should be specified')
+            if x_gauss is None:
+                no_grid_x = 50
+                x_gauss = linspace(0, panel.a, no_grid_x)
+            if y_gauss is None:
+                no_grid_y = 50
+                y_gauss = linspace(0, panel.b, no_grid_y)
+            
+            xs, ys = np.meshgrid(x_gauss, y_gauss, copy=False)
+            # Scalar inputs are converted to 1D arrays, whilst higher-dimensional inputs are preserved
+            xs = np.atleast_1d(np.array(xs, dtype=DOUBLE))
+            ys = np.atleast_1d(np.array(ys, dtype=DOUBLE))
+            shape = xs.shape
+            x = xs.ravel()
+            y = ys.ravel()
+            
+            x = np.ascontiguousarray(x)
+            y = np.ascontiguousarray(y)
+            
+            u, v, w, phix, phiy = fuvw(c_panel, panel, x, y, self.out_num_cores)
+            res['x'].append(reshape(x, shape))
+            res['y'].append(reshape(y, shape))
+            res['u'].append(reshape(u, shape))
+            res['v'].append(reshape(v, shape))
+            res['w'].append(reshape(w, shape))
+            res['phix'].append(reshape(phix, shape))
+            res['phiy'].append(reshape(phiy, shape))
+
+        return res
+
+
+    def strain_gauss_points(self, c, group, x_gauss, y_gauss, NLterms=True):
+        r"""Calculate the strain field for the set of input gauss integration points
+        Strains and curvatures at each point all x and y
+
+        Parameters
+        ----------
+        c : float
+            The full set of Ritz constants
+        group : str
+            A group to plot. Each panel in ``panels`` should contain an
+            attribute ``group``, which is used to identify which entities
+            should be plotted together.
+        x_gauss, y_gauss : Array
+            Gauss sampling points along x and y respectively where the displacement field is to be calculated
+            Either one of xg and yg needs to be specified or both
+        NLterms : bool
+            Flag to indicate whether non-linear strain components should be considered.
+
+        Returns
+        -------
+        out : dict
+            A dictionary of ``np.ndarrays`` with the keys:
+            ``(x, y, exx, eyy, gxy, kxx, kyy, kxy)``.
+
+        """
+        
+        
+        # res = results
+        res = dict(x=[], y=[], exx=[], eyy=[], gxy=[], kxx=[], kyy=[], kxy=[])
+        for panel in self.panels:
+            # If that panel's (in the MD assembly) group is not whose strain u want, skip it
+            if panel.group != group:
+                continue
+            c_panel = c[panel.col_start: panel.col_end]
+            c_panel = np.ascontiguousarray(c_panel, dtype=DOUBLE)
+            model = panel.model
+            # In panels\panels\models - for plates, clpt_bardell_field
+            fstrain = modelDB.db[model]['field'].fstrain
+            
+            if x_gauss is None and y_gauss is None:
+                raise ValueError('Sampling points in atleast x or y should be specified')
+            if x_gauss is None:
+                no_grid_x = 50
+                x_gauss = linspace(0, panel.a, no_grid_x)
+            if y_gauss is None:
+                no_grid_y = 50
+                y_gauss = linspace(0, panel.b, no_grid_y)
+            
+            xs, ys = np.meshgrid(x_gauss, y_gauss, copy=False)
+            # Scalar inputs are converted to 1D arrays, whilst higher-dimensional inputs are preserved
+            xs = np.atleast_1d(np.array(xs, dtype=DOUBLE))
+            ys = np.atleast_1d(np.array(ys, dtype=DOUBLE))
+            shape = xs.shape
+            x = xs.ravel()
+            y = ys.ravel()
+            
+            x = np.ascontiguousarray(x)
+            y = np.ascontiguousarray(y)
+            
+            exx, eyy, gxy, kxx, kyy, kxy = fstrain(c_panel, panel, x, y,
+                    self.out_num_cores, NLgeom=int(NLterms))
+            res['x'].append(reshape(x, shape))
+            res['y'].append(reshape(y, shape))
+            res['exx'].append(reshape(exx, shape))
+            res['eyy'].append(reshape(eyy, shape))
+            res['gxy'].append(reshape(gxy, shape))
+            res['kxx'].append(reshape(kxx, shape))
+            res['kyy'].append(reshape(kyy, shape))
+            res['kxy'].append(reshape(kxy, shape))
+
+        return res
+
+
+    def stress_gauss_points(self, c, group, x_gauss, y_gauss, NLterms=True):
+        r"""Calculate the stress field for the set of input gauss integration points
+
+        Parameters
+        ----------
+        c : float
+            The full set of Ritz constants
+        group : str
+            A group to plot. Each panel in ``panels`` should contain an
+            attribute ``group``, which is used to identify which entities
+            should be plotted together.
+        x_gauss, y_gauss : Array
+            Gauss sampling points along x and y respectively where the displacement field is to be calculated
+        Either one of xg and yg needs to be specified or both     
+            
+        NLterms : bool
+            Flag to indicate whether non-linear strain components should be considered.
+
+        Returns
+        -------
+        out : dict
+            A dict containing many ``np.ndarrays``, with the keys:
+            ``(x, y, Nxx, Nyy, Nxy, Mxx, Myy, Mxy)``.
+
+        """
+        res = dict(x=[], y=[], Nxx=[], Nyy=[], Nxy=[], Mxx=[], Myy=[], Mxy=[])
+        for panel in self.panels:
+            if panel.group != group:
+                continue
+            c_panel = c[panel.col_start: panel.col_end]
+            c_panel = np.ascontiguousarray(c_panel, dtype=DOUBLE)
+            model = panel.model
+            fstrain = modelDB.db[model]['field'].fstrain
+            
+            if x_gauss is None and y_gauss is None:
+                raise ValueError('Sampling points in atleast x or y should be specified')
+            if x_gauss is None:
+                no_grid_x = 50
+                x_gauss = linspace(0, panel.a, no_grid_x)
+            if y_gauss is None:
+                no_grid_y = 50
+                y_gauss = linspace(0, panel.b, no_grid_y)
+            
+            xs, ys = np.meshgrid(x_gauss, y_gauss, copy=False)
+            # Scalar inputs are converted to 1D arrays, whilst higher-dimensional inputs are preserved
+            xs = np.atleast_1d(np.array(xs, dtype=DOUBLE))
+            ys = np.atleast_1d(np.array(ys, dtype=DOUBLE))
+            shape = xs.shape
+            x = xs.ravel()
+            y = ys.ravel()
+            
+            x = np.ascontiguousarray(x)
+            y = np.ascontiguousarray(y)
+            exx, eyy, gxy, kxx, kyy, kxy = fstrain(c_panel, panel, x, y,
+                    self.out_num_cores, NLgeom=int(NLterms))
+            exx = reshape(exx, shape)
+            eyy = reshape(eyy, shape)
+            gxy = reshape(gxy, shape)
+            kxx = reshape(kxx, shape)
+            kyy = reshape(kyy, shape)
+            kxy = reshape(kxy, shape)
+            Ns = np.zeros((exx.shape + (6,)))
+            F = panel.ABD
+            if F is None:
+                raise ValueError('Laminate ABD matrix not defined for panel')
+            for i in range(6):
+                Ns[..., i] = (exx*F[i, 0] + eyy*F[i, 1] + gxy*F[i, 2]
+                            + kxx*F[i, 3] + kyy*F[i, 4] + kxy*F[i, 5])
+            res['x'].append(reshape(x, shape))
+            res['y'].append(reshape(y, shape))
+            res['Nxx'].append(Ns[..., 0])
+            res['Nyy'].append(Ns[..., 1])
+            res['Nxy'].append(Ns[..., 2])
+            res['Mxx'].append(Ns[..., 3])
+            res['Myy'].append(Ns[..., 4])
+            res['Mxy'].append(Ns[..., 5])
+        return res
+
     def get_kC_conn(self, conn=None, finalize=True):
+        '''
+            Calc the stiffness matrix due to the connectivities
+            
+            conn = List of dicts 
+                Each elem of the list = dict for a single connection pair 
+                Each dict contains info of that specific with connection pair
+        '''
         if conn is None:
             if self.conn is None:
                 raise RuntimeError('No connectivity dictionary defined!')
@@ -499,74 +773,128 @@ class MultiDomain(object):
         size = self.get_size()
 
         kC_conn = 0.
+        
+        # Looping through each connection pair 
         for connecti in conn:
-            p1 = connecti['p1']
-            p2 = connecti['p2']
-            connection_function = connecti['func']
+            # connecti = ith connection pair
+            p1_temp = connecti['p1']
+            p2_temp = connecti['p2']
+            if p1_temp.col_start < p2_temp.col_start:
+                pA = p1_temp
+                pB = p2_temp
+            elif p1_temp.col_start > p2_temp.col_start:
+                pA = p2_temp
+                pB = p1_temp
+                if connecti['func'] == 'SB':
+                    pass
+                else:
+                    if 'xcte1' in connecti.keys() and 'xcte2' in connecti.keys():
+                        temp_xcte = connecti['xcte1']
+                        connecti['xcte1'] = connecti['xcte2']
+                        connecti['xcte2'] = temp_xcte
+                    # y needs to be tested
+                    if 'ycte1' in connecti.keys() and 'ycte2' in connecti.keys():
+                        temp_ycte = connecti['ycte1']
+                        connecti['ycte1'] = connecti['ycte2']
+                        connecti['ycte2'] = temp_ycte
+            
+            connection_function = connecti['func'] # Type of connection
+            
             if connection_function == 'SSycte':
-                kt, kr = connections.calc_kt_kr(p1, p2, 'ycte')
+                # ftn in panels/multidomain/connections/penalties.py
+                kt, kr = connections.calc_kt_kr(pA, pB, 'ycte') 
+                
+                # ftn in panels/panels/multidomain/connections
+                # Eq 32 MD paper - expanding squares gives i^2, ij, ji and j^2 which form 
+                #       the 11, 12, 21 and 22 terms of the kC_conn matrix
+                # adds the penalty stiffness to ycte of panel pA position
                 kC_conn += connections.kCSSycte.fkCSSycte11(
-                        kt, kr, p1, connecti['ycte1'],
-                        size, p1.row_start, col0=p1.col_start)
+                        kt, kr, pA, connecti['ycte1'],
+                        size, row0=pA.row_start, col0=pA.col_start)
+                # adds the penalty stiffness to ycte of panel 1 and panel 2 coupling position
                 kC_conn += connections.kCSSycte.fkCSSycte12(
-                        kt, kr, p1, p2, connecti['ycte1'], connecti['ycte2'],
-                        size, p1.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['ycte1'], connecti['ycte2'],
+                        size, row0=pA.row_start, col0=pB.col_start)
+                # adds the penalty stiffness to ycte of panel pB position
                 kC_conn += connections.kCSSycte.fkCSSycte22(
-                        kt, kr, p1, p2, connecti['ycte2'],
-                        size, p2.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['ycte2'],
+                        size, row0=pB.row_start, col0=pB.col_start) 
+            
             elif connection_function == 'SSxcte':
-                kt, kr = connections.calc_kt_kr(p1, p2, 'xcte')
+                kt, kr = connections.calc_kt_kr(pA, pB, 'xcte')
                 kC_conn += connections.kCSSxcte.fkCSSxcte11(
-                        kt, kr, p1, connecti['xcte1'],
-                        size, p1.row_start, col0=p1.col_start)
+                        kt, kr, pA, connecti['xcte1'],
+                        size, row0=pA.row_start, col0=pA.col_start)
                 kC_conn += connections.kCSSxcte.fkCSSxcte12(
-                        kt, kr, p1, p2, connecti['xcte1'], connecti['xcte2'],
-                        size, p1.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['xcte1'], connecti['xcte2'],
+                        size, row0=pA.row_start, col0=pB.col_start)
                 kC_conn += connections.kCSSxcte.fkCSSxcte22(
-                        kt, kr, p1, p2, connecti['xcte2'],
-                        size, p2.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['xcte2'],
+                        size, row0=pB.row_start, col0=pB.col_start)
+            
             elif connection_function == 'SB':
-                kt, kr = connections.calc_kt_kr(p1, p2, 'bot-top')
-                dsb = sum(p1.plyts)/2. + sum(p2.plyts)/2.
-                kC_conn += connections.kCSB.fkCSB11(kt, dsb, p1,
-                        size, p1.row_start, col0=p1.col_start)
-                kC_conn += connections.kCSB.fkCSB12(kt, dsb, p1, p2,
-                        size, p1.row_start, col0=p2.col_start)
-                kC_conn += connections.kCSB.fkCSB22(kt, p1, p2,
-                        size, p2.row_start, col0=p2.col_start)
+                kt, kr = connections.calc_kt_kr(pA, pB, 'bot-top')
+                print(kt, kr)
+                dsb = sum(pA.plyts)/2. + sum(pB.plyts)/2.
+                kC_conn += connections.kCSB.fkCSB11(kt, dsb, pA,
+                        size, row0=pA.row_start, col0=pA.col_start)
+                kC_conn += connections.kCSB.fkCSB12(kt, dsb, pA, pB,
+                        size, row0=pA.row_start, col0=pB.col_start)
+                kC_conn += connections.kCSB.fkCSB22(kt, pA, pB,
+                        size, row0=pB.row_start, col0=pB.col_start)
+            
             elif connection_function == 'BFycte':
-                kt, kr = connections.calc_kt_kr(p1, p2, 'ycte')
+                kt, kr = connections.calc_kt_kr(pA, pB, 'ycte')
                 kC_conn += connections.kCBFycte.fkCBFycte11(
-                        kt, kr, p1, connecti['ycte1'],
-                        size, p1.row_start, col0=p1.col_start)
+                        kt, kr, pA, connecti['ycte1'],
+                        size, row0=pA.row_start, col0=pA.col_start)
                 kC_conn += connections.kCBFycte.fkCBFycte12(
-                        kt, kr, p1, p2, connecti['ycte1'], connecti['ycte2'],
-                        size, p1.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['ycte1'], connecti['ycte2'],
+                        size, row0=pA.row_start, col0=pB.col_start)
                 kC_conn += connections.kCBFycte.fkCBFycte22(
-                        kt, kr, p1, p2, connecti['ycte2'],
-                        size, p2.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['ycte2'],
+                        size, row0=pB.row_start, col0=pB.col_start)
+            
             elif connection_function == 'BFxcte':
-                kt, kr = connections.calc_kt_kr(p1, p2, 'xcte')
+                kt, kr = connections.calc_kt_kr(pA, pB, 'xcte')
                 kC_conn += connections.kCBFxcte.fkCBFxcte11(
-                        kt, kr, p1, connecti['xcte1'],
-                        size, p1.row_start, col0=p1.col_start)
+                        kt, kr, pA, connecti['xcte1'],
+                        size, row0=pA.row_start, col0=pA.col_start)
                 kC_conn += connections.kCBFxcte.fkCBFxcte12(
-                        kt, kr, p1, p2, connecti['xcte1'], connecti['xcte2'],
-                        size, p1.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['xcte1'], connecti['xcte2'],
+                        size, row0=pA.row_start, col0=pB.col_start)
                 kC_conn += connections.kCBFxcte.fkCBFxcte22(
-                        kt, kr, p1, p2, connecti['xcte2'],
-                        size, p2.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['xcte2'],
+                        size, row0=pB.row_start, col0=pB.col_start)
+            
+            # WHAT IS THIS ?????????????????????????????????????????
             elif connection_function == 'kCLTxycte':
-                kt, kr = connections.calc_kt_kr(p1, p2, 'xcte-ycte')
+                kt, kr = connections.calc_kt_kr(pA, pB, 'xcte-ycte')
                 kC_conn += connections.kCLTxycte.fkCBFxcte11(
-                        kt, kr, p1, connecti['xcte1'],
-                        size, p1.row_start, col0=p1.col_start)
+                        kt, kr, pA, connecti['xcte1'],
+                        size, row0=pA.row_start, col0=pA.col_start)
                 kC_conn += connections.kCLTxycte.fkCBFxycte12(
-                        kt, kr, p1, p2, connecti['xcte1'], connecti['ycte2'],
-                        size, p1.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['xcte1'], connecti['ycte2'],
+                        size, row0=pA.row_start, col0=pB.col_start)
                 kC_conn += connections.kCLTxycte.fkCBFycte22(
-                        kt, kr, p1, p2, connecti['ycte2'],
-                        size, p2.row_start, col0=p2.col_start)
+                        kt, kr, pA, pB, connecti['ycte2'],
+                        size, row0=pB.row_start, col0=pB.col_start)
+            
+            # Traction Seperation Law introduced at the interface
+            elif connection_function == 'SB_TSL':
+                tsl_type = connecti['tsl_type']
+                kt = connections.calc_kw_tsl(pA, pB, tsl_type)
+                print(kt)
+                
+                dsb = sum(pA.plyts)/2. + sum(pB.plyts)/2.
+                kC_conn += connections.kCSB.fkCSB11(kt, dsb, pA,
+                        size, row0=pA.row_start, col0=pA.col_start)
+                kC_conn += connections.kCSB.fkCSB12(kt, dsb, pA, pB,
+                        size, row0=pA.row_start, col0=pB.col_start)
+                kC_conn += connections.kCSB.fkCSB22(kt, pA, pB,
+                        size, row0=pB.row_start, col0=pB.col_start)
+                
+            
             else:
                 raise ValueError(f'{connection_function} not recognized.')
 
@@ -580,6 +908,7 @@ class MultiDomain(object):
 
     def calc_kC(self, conn=None, c=None, silent=False, finalize=True, inc=1.):
         """Calculate the constitutive stiffness matrix of the assembly
+        --- this is kP (made by diagonally assemblying kP_i from the MD paper)
 
         Parameters
         ----------
@@ -601,20 +930,23 @@ class MultiDomain(object):
         """
         size = self.get_size()
         msg('Calculating kC for assembly...', level=2, silent=silent)
-        if c is not None:
+        if c is not None: # If c passed, check if its correct (dim and dtype)
             check_c(c, size)
 
         kC = 0.
         for p in self.panels:
             if p.row_start is None or p.col_start is None:
                 raise ValueError('Shell attributes "row_start" and "col_start" must be defined!')
+            # Calc Kc per panel (from the Shell class)
             kC += p.calc_kC(c=c, row0=p.row_start, col0=p.col_start, size=size,
-                    silent=silent, finalize=False)
+                    silent=silent, finalize=False) 
 
+        # Make the matrix symm at the end
         if finalize:
             kC = finalize_symmetric_matrix(kC)
 
         # NOTE move this to another class method? it's a bid hidden
+        # Adding kC_conn to KC panel
         kC_conn = self.get_kC_conn(conn=conn)
         kC += self.kC_conn
 
@@ -721,3 +1053,4 @@ class MultiDomain(object):
         self.fext = fext
         msg('finished!', level=2, silent=silent)
         return fext
+

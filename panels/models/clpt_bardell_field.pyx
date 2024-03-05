@@ -8,7 +8,7 @@ import numpy as np
 from libc.stdlib cimport malloc, free
 from cython.parallel import prange
 
-
+# \panels\panels\core\src
 cdef extern from 'bardell_functions.hpp':
     double vec_f(double *f, double xi, double xi1t, double xi1r,
                   double xi2t, double xi2r) nogil
@@ -25,6 +25,9 @@ cdef int DOF = 3
 
 def fuvw(double [::1] c, object s, double [::1] xs, double [::1] ys,
         int num_cores=4):
+    '''
+        Calculates the displacement field at all points in the provided grid
+    '''
     cdef double a, b
     cdef int m, n
     cdef double x1u, x1ur, x2u, x2ur
@@ -100,6 +103,18 @@ def fuvw(double [::1] c, object s, double [::1] xs, double [::1] ys,
 
 def fstrain(double [::1] c, object s, double [::1] xs, double [::1] ys, int
             num_cores=4, int NLgeom=0):
+    #  [::1] means a contigious array
+    
+    '''
+    Calculates the strain field at all points in the provided grid 
+    
+        c : ritz coeffients of the whole system i.e. size = n_rows of K_global
+        
+        s : Shell obj
+        
+        xs and ys : contigious arrays of the grid divisions in the x and y direction
+    '''
+    
     cdef double a, b, r
     cdef int m, n
     cdef double x1u, x1ur, x2u, x2ur
@@ -130,6 +145,7 @@ def fstrain(double [::1] c, object s, double [::1] xs, double [::1] ys, int
         add_size = 0
     new_size = size + add_size
 
+# ???????????????????????????
     if (size % num_cores) != 0:
         xs_core = np.ascontiguousarray(np.hstack((xs, np.zeros(add_size))).reshape(num_cores, -1), dtype=DOUBLE)
         ys_core = np.ascontiguousarray(np.hstack((ys, np.zeros(add_size))).reshape(num_cores, -1), dtype=DOUBLE)
@@ -161,7 +177,7 @@ def fstrain(double [::1] c, object s, double [::1] xs, double [::1] ys, int
 
     return (np.ravel(exxs)[:size], np.ravel(eyys)[:size], np.ravel(gxys)[:size],
             np.ravel(kxxs)[:size], np.ravel(kyys)[:size], np.ravel(kxys)[:size])
-
+# slices the first 'size' elems from the flattened array
 
 cdef void cfuvw(double *c, int m, int n, double a, double b, double *xs,
         double *ys, int size, double *us, double *vs, double *ws,
@@ -295,6 +311,9 @@ cdef void cfwy(double *c, int m, int n, double a, double b, double *xs,
 
 
 def fg(double[:, ::1] g, double x, double y, object s):
+    # Accessing the contiguous memory layout for C 
+    # ::1 at the 2nd position means that the elements in this 2nd dimension will be 1 element apart in memory.
+    
     if s.__class__.__name__ != 'Shell':
         raise ValueError('A Shell object must be passed')
     a = s.a
@@ -330,6 +349,10 @@ cdef void cfg(double[:,::1] g, int m, int n,
     cdef double *gw_eta
 
     fu = <double *>malloc(NMAX * sizeof(double *))
+    # NMAX defined earlier
+    # <double *> = explicitly casting the result of malloc to a pointer to double. 
+    #  result of malloc = initially a generic pointer (void*). By casting it to a double*, you inform
+    # the compiler that you intend to treat the allocated memory as if it stores a double 
     gu = <double *>malloc(NMAX * sizeof(double *))
     fv = <double *>malloc(NMAX * sizeof(double *))
     gv = <double *>malloc(NMAX * sizeof(double *))
@@ -341,6 +364,7 @@ cdef void cfg(double[:,::1] g, int m, int n,
     xi = 2*x/a - 1.
     eta = 2*y/b - 1.
 
+    # Returns the bardel functions
     vec_f(fu, xi, x1u, x1ur, x2u, x2ur)
     vec_f(gu, eta, y1u, y1ur, y2u, y2ur)
     vec_f(fv, xi, x1v, x1vr, x2v, x2vr)
@@ -368,7 +392,10 @@ cdef void cfg(double[:,::1] g, int m, int n,
     free(gw)
     free(gw_eta)
 
-
+# *c passed as pointer - modifies it wo needing to pass it back
+'''
+    Calculates the strain at every point in the provided grid
+'''
 cdef void cfstrain(double *c, int m, int n, double a, double b,
         double r,
         double *xs, double *ys, int size,
@@ -423,6 +450,7 @@ cdef void cfstrain(double *c, int m, int n, double a, double b,
     else:
         flagcyl = 1
 
+    # Goes through the passed x and y (which are already all the points on the grid)
     for pti in range(size):
         x = xs[pti]
         y = ys[pti]
@@ -430,14 +458,17 @@ cdef void cfstrain(double *c, int m, int n, double a, double b,
         xi = 2*x/a - 1.
         eta = 2*y/b - 1.
 
+        # u functions at x and y (loop gets it through all points)
         vec_f(fu, xi, x1u, x1ur, x2u, x2ur)
         vec_fp(fuxi, xi, x1u, x1ur, x2u, x2ur)
         vec_f(gu, eta, y1u, y1ur, y2u, y2ur)
         vec_fp(gueta, eta, y1u, y1ur, y2u, y2ur)
+        # v functions 
         vec_f(fv, xi, x1v, x1vr, x2v, x2vr)
         vec_fp(fvxi, xi, x1v, x1vr, x2v, x2vr)
         vec_f(gv, eta, y1v, y1vr, y2v, y2vr)
         vec_fp(gveta, eta, y1v, y1vr, y2v, y2vr)
+        # w functions 
         vec_f(fw, xi, x1w, x1wr, x2w, x2wr)
         vec_fp(fwxi, xi, x1w, x1wr, x2w, x2wr)
         vec_fpp(fwxixi, xi, x1w, x1wr, x2w, x2wr)
@@ -448,11 +479,13 @@ cdef void cfstrain(double *c, int m, int n, double a, double b,
         wxi = 0
         weta = 0
 
+        # Sum through all m*n terms
         for j in range(n):
             for i in range(m):
                 col = DOF*(j*m + i)
                 wxi += c[col+2]*fwxi[i]*gw[j]
                 weta += c[col+2]*fw[i]*gweta[j]
+                # +2 to get w (+0 is u, +1 is v)
 
         exx = 0
         eyy = 0
@@ -464,7 +497,7 @@ cdef void cfstrain(double *c, int m, int n, double a, double b,
         for j in range(n):
             for i in range(m):
                 col = DOF*(j*m + i)
-                exx += c[col+0]*fuxi[i]*gu[j]*(2/a) + NLgeom*2/(a*a)*c[col+2]*fwxi[i]*gw[j]*wxi
+                exx += c[col+0]*fuxi[i]*gu[j]*(2/a) + NLgeom*2/(a*a)*c[col+2]*fwxi[i]*gw[j]*wxi # same as wxi^2
                 if flagcyl == 1:
                     eyy += c[col+1]*fv[i]*gveta[j]*(2/b) + 1/r*c[col+2]*fw[i]*gw[j] + NLgeom*2/(b*b)*c[col+2]*fw[i]*gweta[j]*weta
                 else:
@@ -476,6 +509,7 @@ cdef void cfstrain(double *c, int m, int n, double a, double b,
                 kyy += -c[col+2]*fw[i]*gwetaeta[j]*4/(b*b)
                 kxy += -2*c[col+2]*fwxi[i]*gweta[j]*4/(a*b)
 
+        # Strains and curvatures at each point in the grid 
         exxs[pti] = exx
         eyys[pti] = eyy
         gxys[pti] = gxy
@@ -483,6 +517,7 @@ cdef void cfstrain(double *c, int m, int n, double a, double b,
         kyys[pti] = kyy
         kxys[pti] = kxy
 
+    # Frees up the allocated mem
     free(fu)
     free(fuxi)
     free(gu)

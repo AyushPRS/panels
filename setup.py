@@ -120,6 +120,7 @@ else: # MAC-OS
 
 include_dirs = [
     r'./panels/core/include',
+    r'C:\Users\natha\Documents\GitHub\panels\panels\core\include',
             ]
 
 extensions = [
