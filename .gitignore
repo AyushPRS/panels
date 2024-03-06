@@ -31,3 +31,4 @@ test.png
 # Folders to ignore
 .vscode/
 output_expressions_python/
+local_use/
