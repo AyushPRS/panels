@@ -28,3 +28,6 @@ test.png
 *.pyo
 *.pyd
 
+# Folders to ignore
+.vscode/
+output_expressions_python/
